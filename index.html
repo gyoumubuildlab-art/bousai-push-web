@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>防災通知 登録ページ</title>
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22%E9%98%B2%E7%81%BD%E9%80%9A%E7%9F%A5%22%2C%22short_name%22%3A%22%E9%98%B2%E7%81%BD%E9%80%9A%E7%9F%A5%22%2C%22start_url%22%3A%22.%2Findex.html%22%2C%22scope%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f1f5f9%22%2C%22theme_color%22%3A%22%230f172a%22%2C%22lang%22%3A%22ja%22%2C%22icons%22%3A%5B%5D%7D">
+<meta name="theme-color" content="#0f172a">
+<style>
+  body {
+    margin: 0; font-family: "Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+    background: #f1f5f9; color: #1e293b; padding: 20px;
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 18px; }
+  .card {
+    background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .step-num {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:50%; background:#2563eb; color:white;
+    font-size:13px; font-weight:700; margin-right:8px;
+  }
+  button {
+    font-family: inherit; border: none; border-radius: 8px; padding: 12px 16px;
+    font-size: 15px; cursor: pointer; width: 100%; margin-top: 8px;
+  }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-secondary { background: #e2e8f0; color: #1e293b; }
+  .status {
+    font-size: 13px; padding: 8px 10px; border-radius: 8px; margin-top: 8px;
+  }
+  .status.ok { background: #dcfce7; color: #166534; }
+  .status.ng { background: #fecaca; color: #991b1b; }
+  .status.info { background: #e0f2fe; color: #075985; }
+  textarea {
+    width: 100%; height: 140px; font-family: monospace; font-size: 11px;
+    border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; box-sizing: border-box;
+    margin-top: 8px;
+  }
+  .muted { color: #64748b; font-size: 12px; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>⚠️ 防災通知 登録ページ</h1>
+
+  <div class="card">
+    <div><span class="step-num">1</span><strong>ホーム画面に追加(iPhoneのみ必須)</strong></div>
+    <p class="muted" style="margin-top:8px;">
+      iPhoneのSafariをお使いの場合、共有ボタン → 「ホーム画面に追加」を行い、
+      <b>追加したホーム画面のアイコンからこのページを開き直してから</b>
+      下の手順2に進んでください。これをしないと通知の許可自体ができません。<br>
+      Androidの場合はこの手順は不要です(そのまま手順2へ)。
+    </p>
+  </div>
+
+  <div class="card">
+    <div><span class="step-num">2</span><strong>通知を有効にする</strong></div>
+    <button id="btn-subscribe" class="btn-primary">通知を有効にする</button>
+    <div id="status" class="status info">まだ登録していません。</div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none;">
+    <div><span class="step-num">3</span><strong>この文字を担当者に送る</strong></div>
+    <p class="muted" style="margin-top:8px;">
+      下のボタンで文字をコピーして、担当者にメールやチャットで送ってください
+      (自分の名前も添えてもらえると助かります)。<br>
+      担当者は、届いた文字をそのまま<b>「送ってきた人の名前.json」</b>という
+      ファイル名で保存するだけで登録完了です(中身を編集する必要はありません)。
+    </p>
+    <textarea id="sub-text" readonly></textarea>
+    <button id="btn-copy" class="btn-secondary">この文字をコピーする</button>
+    <div id="copy-status" class="status info" style="display:none;"></div>
+  </div>
+
+  <div class="card">
+    <div><span class="step-num">✓</span><strong>担当者向け: テスト通知</strong></div>
+    <p class="muted" style="margin-top:8px;">
+      保存が終わったら <code>push_monitor.py --test</code> を実行すると、
+      登録している全員にテスト通知が届きます。届けば設定完了です。
+    </p>
+  </div>
+</main>
+
+<script>
+// ============================================================
+// ここに、NASで生成したVAPID公開鍵(Application Server Key)を貼り付けてください。
+// 例: "BN4Z...(長い英数字の文字列)..."
+// ============================================================
+const VAPID_PUBLIC_KEY = "   BMpCKAesJqR_PYDZJ4dSWytRDgOSxMuX-1gU-p7CkZt6GP6YkOxRy-fklE_gJydOzq5HAksuTaQ0CPZAWFJ4LY4";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+const statusEl = document.getElementById("status");
+const resultCard = document.getElementById("result-card");
+const subText = document.getElementById("sub-text");
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = "status " + cls;
+}
+
+async function subscribe() {
+  if (VAPID_PUBLIC_KEY.includes("ここに")) {
+    setStatus("VAPID公開鍵が未設定です。index.html内のVAPID_PUBLIC_KEYを書き換えてください。", "ng");
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    setStatus("このブラウザはWeb Pushに対応していません。", "ng");
+    return;
+  }
+
+  try {
+    setStatus("Service Workerを登録中...", "info");
+    const reg = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+
+    setStatus("通知の許可を確認中...", "info");
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      setStatus("通知が許可されませんでした。ブラウザの設定から許可してください。", "ng");
+      return;
+    }
+
+    setStatus("プッシュ購読を作成中...", "info");
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+
+    setStatus("登録が完了しました。下の情報をNASに保存してください。", "ok");
+    subText.value = JSON.stringify(sub.toJSON(), null, 2);
+    resultCard.style.display = "block";
+  } catch (e) {
+    setStatus("エラー: " + e.message, "ng");
+    console.error(e);
+  }
+}
+
+document.getElementById("btn-subscribe").addEventListener("click", subscribe);
+
+document.getElementById("btn-copy").addEventListener("click", async () => {
+  const copyStatusEl = document.getElementById("copy-status");
+  try {
+    await navigator.clipboard.writeText(subText.value);
+    copyStatusEl.textContent = "コピーしました。";
+    copyStatusEl.className = "status ok";
+  } catch (e) {
+    subText.select();
+    copyStatusEl.textContent = "自動コピーに失敗しました。手動で選択してコピーしてください。";
+    copyStatusEl.className = "status ng";
+  }
+  copyStatusEl.style.display = "block";
+});
+
+// ページを開いた時点で、既に購読済みかどうかを一応確認しておく
+(async () => {
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && (await reg.pushManager.getSubscription());
+      if (sub) {
+        setStatus("既に登録済みです(再登録する場合はボタンを押してください)。", "ok");
+        subText.value = JSON.stringify(sub.toJSON(), null, 2);
+        resultCard.style.display = "block";
+      }
+    } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>
