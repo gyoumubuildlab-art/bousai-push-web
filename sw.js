@@ -263,35 +263,40 @@ async function checkFloodOnce(offices, settings) {
 
 
 
-const CACHE_NAME = "bousai-notify-cache-v1";
+const CACHE_NAME = "bousai-notify-cache-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // 古いバージョンのキャッシュを消す(これがないと、更新しても
+      // 古いページがいつまでも表示され続けることがある)
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
-// オフライン時でもアプリの見た目自体は開けるよう、最低限のファイルをキャッシュする
+// 「まずネットワークから最新を取りに行き、失敗した時だけキャッシュを使う」方式。
+// これなら、GitHub側を更新すればスマホ側も次に開いた時に必ず最新になる。
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // 同一オリジン(このアプリ自身のファイル)のみキャッシュ対象にする
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request)
-          .then((res) => {
-            const resClone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-            return res;
-          })
-          .catch(() => cached)
-      );
-    })
+    fetch(event.request)
+      .then((res) => {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
@@ -301,6 +306,16 @@ self.addEventListener("fetch", (event) => {
 // このイベントが発火する。ブラウザ側の自発的なチェックではないので、
 // タイミングのブレがなく、iPhoneでも(条件付きで)動作する。
 // ------------------------------------------------------------
+// 通知の見た目を強調するための、赤い警告アイコン(データURIで完結、追加ファイル不要)
+const WARNING_ICON =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+    '<circle cx="50" cy="50" r="48" fill="#d32f2f"/>' +
+    '<text x="50" y="72" font-size="60" text-anchor="middle" fill="white">!</text>' +
+    "</svg>"
+  );
+
 self.addEventListener("push", (event) => {
   let payload = { title: "防災通知", body: "" , tag: "jma-push"};
   try {
@@ -319,6 +334,7 @@ self.addEventListener("push", (event) => {
       requireInteraction: true,   // ユーザーが閉じるまで通知を残す
       vibrate: [300, 150, 300, 150, 300],
       renotify: true,             // 同じtagでも毎回振動・音を鳴らし直す
+      icon: WARNING_ICON,         // 通知一覧で他のメール等と見分けやすくする赤い警告アイコン
     })
   );
 });
